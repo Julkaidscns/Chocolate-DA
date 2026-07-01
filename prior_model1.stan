@@ -1,55 +1,41 @@
 data {
-  int<lower=1> N;                   // Number of observations
-  int<lower=1> J;                   // Number of origins
-  int<lower=1> K;                   // Number of producers
-  int<lower=1> C;                   // Number of rating categories (e.g., 17)
-  
+  int<lower=1> N;
+  int<lower=1> J;
+  int<lower=1> K;
+  int<lower=1> C;
   array[N] int<lower=1, upper=J> origin;
   array[N] int<lower=1, upper=K> producer;
-  array[N] int<lower=1, upper=C> rating;
-}
-
-parameters {
-  // Cutpoints for the ordered logistic
-  ordered[C - 1] c;
-  
-  // Hierarchical standard deviations
-  real<lower=0> sigma_origin;
-  real<lower=0> sigma_producer;
-  
-  // Raw effects (for non-centered parameterization to help the sampler)
-  vector[J] alpha_raw;
-  vector[K] gamma_raw;
-}
-
-transformed parameters {
-  // Non-centered parameterization (prevents divergent transitions!)
-  vector[J] alpha = alpha_raw * sigma_origin;
-  vector[K] gamma = gamma_raw * sigma_producer;
-}
-
-model {
-  // Priors
-  sigma_origin ~ std_normal();
-  sigma_producer ~ std_normal();
-  sigma_origin   ~ normal(0, 1);   // with <lower=0> constraint this is HalfNormal(1)
-  sigma_producer ~ normal(0, 1);
-  c ~ normal(0, 2);
-  
-  // Likelihood
-  vector[N] phi;
-  for (i in 1:N) {
-    phi[i] = alpha[origin[i]] + gamma[producer[i]];
-  }
-  rating ~ ordered_logistic(phi, c);
+  array[J] int<lower=1, upper=K> origin_location;   // ← new
 }
 
 generated quantities {
+  vector[C - 1] c;
+  {
+    vector[C - 1] c_raw;
+    for (k in 1:(C - 1))
+      c_raw[k] = normal_rng(0, 2.5);
+    c = sort_asc(c_raw);
+  }
+
+  real mu_global        = normal_rng(0, 1);
+  real sigma_origin     = abs(normal_rng(0, 1));
+  real sigma_producer   = abs(normal_rng(0, 1));
+  real sigma_lambda     = abs(normal_rng(0, 1));   // ← new
+
+  vector[K] lambda_raw;
+  for (k in 1:K) lambda_raw[k] = normal_rng(0, 1);
+  vector[K] lambda = lambda_raw * sigma_lambda;    // ← new
+
+  vector[J] alpha;
+  for (j in 1:J)
+    alpha[j] = normal_rng(lambda[origin_location[j]], sigma_origin);  // ← uses lambda
+
+  vector[K] gamma;
+  for (k in 1:K) gamma[k] = normal_rng(0, sigma_producer);
+
   array[N] int rating_pred;
-  vector[N] log_lik;
   for (i in 1:N) {
-    real phi_pred = alpha[origin[i]] + gamma[producer[i]];
-    rating_pred[i] = ordered_logistic_rng(phi_pred, c);
-    log_lik[i] = ordered_logistic_lpmf(rating[i] | phi_pred, c);
+    real phi_i = mu_global + alpha[origin[i]] + gamma[producer[i]];
+    rating_pred[i] = ordered_logistic_rng(phi_i, c);
   }
 }

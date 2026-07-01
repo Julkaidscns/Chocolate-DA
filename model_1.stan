@@ -1,40 +1,75 @@
 data {
   int<lower=1> N;
-  int<lower=1> J;
-  int<lower=1> K;
-  array[N] int<lower=1, upper=J> country;
-  array[N] int<lower=1, upper=K> location;
-  vector[N] rating;
+  int<lower=1> J;         // number of bean origins
+  int<lower=1> K;         // number of producer locations
+  int<lower=1> C;         // number of rating categories
+
+  array[N] int<lower=1, upper=J> origin;
+  array[N] int<lower=1, upper=K> producer;
+  array[N] int<lower=1, upper=C> rating;
+
+  // for each bean origin j, which producer location does it come from
+  array[J] int<lower=1, upper=K> origin_location;
 }
+
 parameters {
+  ordered[C - 1] c;
   real mu_global;
-  vector[J] a_raw;
-  vector[K] b_raw;
-  real<lower=1e-6> sigma_origin;
-  real<lower=1e-6> sigma_producer;
-  real<lower=1e-6> sigma;
+
+  // direct producer location -> rating effect
+  real<lower=0> sigma_producer;
+  vector[K] gamma_raw;
+
+  // producer location -> bean origin mean effect (separate from gamma!)
+  real<lower=0> sigma_lambda;
+  vector[K] lambda_raw;
+
+  // residual bean origin effect after accounting for location
+  real<lower=0> sigma_origin;
+  vector[J] alpha_raw;
 }
+
 transformed parameters {
-  vector[J] a = a_raw * sigma_origin;
-  vector[K] b = b_raw * sigma_producer;
+  // direct effect of producer location on ratings
+  vector[K] gamma = gamma_raw * sigma_producer;
+
+  // typical bean quality for origins sourced from each location
+  vector[K] lambda = lambda_raw * sigma_lambda;
+
+  // origin effect = location-level mean + residual origin noise
+  vector[J] alpha;
+  for (j in 1:J)
+    alpha[j] = lambda[origin_location[j]] + alpha_raw[j] * sigma_origin;
 }
+
 model {
-  mu_global      ~ normal(3, 0.5);
-  sigma_origin   ~ normal(0, 0.3);
-  sigma_producer ~ normal(0, 0.3);
-  sigma          ~ exponential(2);
+  // hyperpriors
+  mu_global      ~ normal(0, 1);
+  sigma_producer ~ normal(0, 1);   // HalfNormal due to <lower=0>
+  sigma_lambda   ~ normal(0, 1);
+  sigma_origin   ~ normal(0, 1);
 
-  a_raw ~ std_normal();
-  b_raw ~ std_normal();
+  // non-centered parameterisation
+  gamma_raw  ~ std_normal();
+  lambda_raw ~ std_normal();
+  alpha_raw  ~ std_normal();
 
+  c ~ normal(0, 2.5);
+
+  // likelihood
+  vector[N] phi;
   for (i in 1:N)
-    rating[i] ~ normal(mu_global + a[country[i]] + b[location[i]], sigma);
+    phi[i] = mu_global + alpha[origin[i]] + gamma[producer[i]];
+
+  rating ~ ordered_logistic(phi, c);
 }
+
 generated quantities {
-  array[N] real rating_pred;
-  array[N] real log_lik;
+  array[N] int rating_pred;
+  vector[N] log_lik;
   for (i in 1:N) {
-    rating_pred[i] = normal_rng(mu_global + a[country[i]] + b[location[i]], sigma);
-    log_lik[i] = normal_lpdf(rating[i] | mu_global + a[country[i]] + b[location[i]], sigma);
+    real phi_i = mu_global + alpha[origin[i]] + gamma[producer[i]];
+    rating_pred[i] = ordered_logistic_rng(phi_i, c);
+    log_lik[i]     = ordered_logistic_lpmf(rating[i] | phi_i, c);
   }
 }
