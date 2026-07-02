@@ -5,7 +5,7 @@ data {
   int<lower=1> C;
   array[N] int<lower=1, upper=J> origin;
   array[N] int<lower=1, upper=K> producer;
-  array[J] int<lower=1, upper=K> origin_location;   // ← new
+  array[J] int<lower=1, upper=K> origin_location;
 }
 
 generated quantities {
@@ -20,15 +20,15 @@ generated quantities {
   real mu_global        = normal_rng(0, 1);
   real sigma_origin     = abs(normal_rng(0, 1));
   real sigma_producer   = abs(normal_rng(0, 1));
-  real sigma_lambda     = abs(normal_rng(0, 1));   // ← new
+  real sigma_lambda     = abs(normal_rng(0, 1));
 
   vector[K] lambda_raw;
   for (k in 1:K) lambda_raw[k] = normal_rng(0, 1);
-  vector[K] lambda = lambda_raw * sigma_lambda;    // ← new
+  vector[K] lambda = lambda_raw * sigma_lambda;
 
   vector[J] alpha;
   for (j in 1:J)
-    alpha[j] = normal_rng(lambda[origin_location[j]], sigma_origin);  // ← uses lambda
+    alpha[j] = normal_rng(lambda[origin_location[j]], sigma_origin);
 
   vector[K] gamma;
   for (k in 1:K) gamma[k] = normal_rng(0, sigma_producer);
